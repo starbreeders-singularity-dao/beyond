@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitcoin Block Visualizer</title>
+    <style>
+        body { margin: 0; }
+        #scene-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 2;
+        }
+    </style>
+</head>
+<body>
+    <div id="scene-container"></div>
+    <div id="controls">
+        <input type="number" id="block-height" placeholder="Enter block height">
+        <button id="visualize-btn">Visualize</button>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script type="module">
+        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls;
+
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 5;
+
+            // Renderer
+            const container = document.getElementById('scene-container');
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            container.appendChild(renderer.domElement);
+
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(0, 1, 1);
+            scene.add(directionalLight);
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        async function visualizeBlock() {
+            const blockHeight = document.getElementById('block-height').value;
+            if (!blockHeight) {
+                alert('Please enter a block height.');
+                return;
+            }
+
+            // Clear previous objects
+            while(scene.children.length > 2){ // Keep lights
+                scene.remove(scene.children[2]);
+            }
+
+            try {
+                // Step 1: Get block hash
+                const hashResponse = await fetch(`https://blockstream.info/api/block-height/${blockHeight}`);
+                if (!hashResponse.ok) throw new Error('Block not found');
+                const blockHash = await hashResponse.text();
+
+                // Step 2: Get transactions
+                const txsResponse = await fetch(`https://blockstream.info/api/block/${blockHash}/txs`);
+                if (!txsResponse.ok) throw new Error('Could not fetch transactions');
+                const txs = await txsResponse.json();
+
+                // Step 3: Visualize transactions
+                txs.forEach((tx, index) => {
+                    const value = tx.vout.reduce((sum, output) => sum + output.value, 0);
+                    const size = Math.log(value + 1) / 10;
+                    const fee = tx.fee;
+
+                    const geometry = new THREE.BoxGeometry(size, size, size);
+                    const material = new THREE.MeshStandardMaterial({
+                        color: new THREE.Color(`hsl(${fee % 360}, 100%, 50%)`)
+                    });
+                    const cube = new THREE.Mesh(geometry, material);
+
+                    cube.position.x = (index % 10) - 5;
+                    cube.position.y = Math.floor(index / 10) - 5;
+                    cube.position.z = (Math.random() - 0.5) * 10;
+
+                    scene.add(cube);
+                });
+
+            } catch (error) {
+                alert(error.message);
+            }
+        }
+
+        document.getElementById('visualize-btn').addEventListener('click', visualizeBlock);
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        init();
+    </script>
+</body>
+</html>
